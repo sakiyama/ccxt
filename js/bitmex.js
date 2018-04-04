@@ -318,6 +318,7 @@ module.exports = class bitmex extends Exchange {
             ohlcv['low'],
             ohlcv['close'],
             ohlcv['volume'],
+            ohlcv['vwap'],
         ];
     }
 
