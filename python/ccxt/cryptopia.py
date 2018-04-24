@@ -80,42 +80,23 @@ class cryptopia (Exchange):
                     ],
                 },
             },
+            'commonCurrencies': {
+                'ACC': 'AdCoin',
+                'BAT': 'BatCoin',
+                'BLZ': 'BlazeCoin',
+                'BTG': 'Bitgem',
+                'CC': 'CCX',
+                'CMT': 'Comet',
+                'FCN': 'Facilecoin',
+                'FUEL': 'FC2',  # FuelCoin != FUEL
+                'HAV': 'Havecoin',
+                'LDC': 'LADACoin',
+                'MARKS': 'Bitmark',
+                'NET': 'NetCoin',
+                'QBT': 'Cubits',
+                'WRC': 'WarCoin',
+            },
         })
-
-    def common_currency_code(self, currency):
-        currencies = {
-            'ACC': 'AdCoin',
-            'BAT': 'BatCoin',
-            'BLZ': 'BlazeCoin',
-            'CC': 'CCX',
-            'CMT': 'Comet',
-            'FCN': 'Facilecoin',
-            'NET': 'NetCoin',
-            'BTG': 'Bitgem',
-            'FUEL': 'FC2',  # FuelCoin != FUEL
-            'QBT': 'Cubits',
-            'WRC': 'WarCoin',
-        }
-        if currency in currencies:
-            return currencies[currency]
-        return currency
-
-    def currency_id(self, currency):
-        currencies = {
-            'AdCoin': 'ACC',
-            'BatCoin': 'BAT',
-            'BlazeCoin': 'BLZ',
-            'CCX': 'CC',
-            'Comet': 'CMT',
-            'Cubits': 'QBT',
-            'Facilecoin': 'FCN',
-            'NetCoin': 'NET',
-            'Bitgem': 'BTG',
-            'FC2': 'FUEL',
-        }
-        if currency in currencies:
-            return currencies[currency]
-        return currency
 
     def fetch_markets(self):
         response = self.publicGetGetTradePairs()
@@ -125,10 +106,10 @@ class cryptopia (Exchange):
             market = markets[i]
             id = market['Id']
             symbol = market['Label']
-            base = market['Symbol']
-            quote = market['BaseSymbol']
-            base = self.common_currency_code(base)
-            quote = self.common_currency_code(quote)
+            baseId = market['Symbol']
+            quoteId = market['BaseSymbol']
+            base = self.common_currency_code(baseId)
+            quote = self.common_currency_code(quoteId)
             symbol = base + '/' + quote
             precision = {
                 'amount': 8,
@@ -157,6 +138,8 @@ class cryptopia (Exchange):
                 'symbol': symbol,
                 'base': base,
                 'quote': quote,
+                'baseId': baseId,
+                'quoteId': quoteId,
                 'info': market,
                 'maker': market['TradeFee'] / 100,
                 'taker': market['TradeFee'] / 100,
@@ -230,7 +213,9 @@ class cryptopia (Exchange):
             'high': float(ticker['High']),
             'low': float(ticker['Low']),
             'bid': float(ticker['BidPrice']),
+            'bidVolume': None,
             'ask': float(ticker['AskPrice']),
+            'askVolume': None,
             'vwap': vwap,
             'open': open,
             'close': last,
@@ -266,7 +251,7 @@ class cryptopia (Exchange):
             market = self.markets_by_id[id]
             symbol = market['symbol']
             result[symbol] = self.parse_ticker(ticker, market)
-        return result
+        return self.filter_by_array(result, 'symbol', symbols)
 
     def parse_trade(self, trade, market=None):
         timestamp = None
@@ -314,7 +299,7 @@ class cryptopia (Exchange):
         if since is not None:
             elapsed = self.milliseconds() - since
             hour = 1000 * 60 * 60
-            hours = int(elapsed / hour)
+            hours = int(int(math.ceil(elapsed / hour)))
         request = {
             'id': market['id'],
             'hours': hours,
@@ -330,6 +315,8 @@ class cryptopia (Exchange):
         if symbol:
             market = self.market(symbol)
             request['TradePairId'] = market['id']
+        if limit is not None:
+            request['Count'] = limit  # default 100
         response = self.privatePostGetTradeHistory(self.extend(request, params))
         return self.parse_trades(response['Data'], market, since, limit)
 
@@ -431,6 +418,7 @@ class cryptopia (Exchange):
             'id': id,
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
+            'lastTradeTimestamp': None,
             'status': 'open',
             'symbol': symbol,
             'type': type,
@@ -484,6 +472,7 @@ class cryptopia (Exchange):
             'info': self.omit(order, 'status'),
             'timestamp': timestamp,
             'datetime': self.iso8601(timestamp),
+            'lastTradeTimestamp': None,
             'status': order['status'],
             'symbol': symbol,
             'type': 'limit',
@@ -558,27 +547,27 @@ class cryptopia (Exchange):
                 result.append(orders[i])
         return result
 
-    def fetch_deposit_address(self, currency, params={}):
-        currencyId = self.currency_id(currency)
+    def fetch_deposit_address(self, code, params={}):
+        currency = self.currency(code)
         response = self.privatePostGetDepositAddress(self.extend({
-            'Currency': currencyId,
+            'Currency': currency['id'],
         }, params))
         address = self.safe_string(response['Data'], 'BaseAddress')
         if not address:
             address = self.safe_string(response['Data'], 'Address')
         self.check_address(address)
         return {
-            'currency': currency,
+            'currency': code,
             'address': address,
             'status': 'ok',
             'info': response,
         }
 
-    def withdraw(self, currency, amount, address, tag=None, params={}):
+    def withdraw(self, code, amount, address, tag=None, params={}):
+        currency = self.currency(code)
         self.check_address(address)
-        currencyId = self.currency_id(currency)
         request = {
-            'Currency': currencyId,
+            'Currency': currency['id'],
             'Amount': amount,
             'Address': address,  # Address must exist in you AddressBook in security settings
         }

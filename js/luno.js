@@ -151,6 +151,7 @@ module.exports = class luno extends Exchange {
             'id': order['order_id'],
             'datetime': this.iso8601 (timestamp),
             'timestamp': timestamp,
+            'lastTradeTimestamp': undefined,
             'status': status,
             'symbol': symbol,
             'type': undefined,
@@ -178,6 +179,7 @@ module.exports = class luno extends Exchange {
         let symbol = undefined;
         if (market)
             symbol = market['symbol'];
+        let last = parseFloat (ticker['last_trade']);
         return {
             'symbol': symbol,
             'timestamp': timestamp,
@@ -185,12 +187,14 @@ module.exports = class luno extends Exchange {
             'high': undefined,
             'low': undefined,
             'bid': parseFloat (ticker['bid']),
+            'bidVolume': undefined,
             'ask': parseFloat (ticker['ask']),
+            'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
-            'close': undefined,
-            'first': undefined,
-            'last': parseFloat (ticker['last_trade']),
+            'close': last,
+            'last': last,
+            'previousClose': undefined,
             'change': undefined,
             'percentage': undefined,
             'average': undefined,
@@ -253,10 +257,10 @@ module.exports = class luno extends Exchange {
         return this.parseTrades (response['trades'], market, since, limit);
     }
 
-    async createOrder (market, type, side, amount, price = undefined, params = {}) {
+    async createOrder (symbol, type, side, amount, price = undefined, params = {}) {
         await this.loadMarkets ();
         let method = 'privatePost';
-        let order = { 'pair': this.marketId (market) };
+        let order = { 'pair': this.marketId (symbol) };
         if (type === 'market') {
             method += 'Marketorder';
             order['type'] = side.toUpperCase ();

@@ -15,6 +15,7 @@ module.exports = class bitz extends Exchange {
             'countries': 'HK',
             'rateLimit': 1000,
             'version': 'v1',
+            'userAgent': this.userAgents['chrome'],
             'has': {
                 'fetchTickers': true,
                 'fetchOHLCV': true,
@@ -121,6 +122,9 @@ module.exports = class bitz extends Exchange {
                 'amount': 8,
                 'price': 8,
             },
+            'options': {
+                'lastNonceTimestamp': 0,
+            },
         });
     }
 
@@ -160,17 +164,20 @@ module.exports = class bitz extends Exchange {
         let result = { 'info': response };
         let keys = Object.keys (balances);
         for (let i = 0; i < keys.length; i++) {
-            let currency = keys[i];
-            let balance = parseFloat (balances[currency]);
-            if (currency in this.currencies_by_id)
-                currency = this.currencies_by_id[currency]['code'];
-            else
-                currency = currency.toUpperCase ();
-            let account = this.account ();
-            account['free'] = balance;
-            account['used'] = undefined;
-            account['total'] = balance;
-            result[currency] = account;
+            let id = keys[i];
+            let idHasUnderscore = (id.indexOf ('_') >= 0);
+            if (!idHasUnderscore) {
+                let code = id.toUpperCase ();
+                if (id in this.currencies_by_id) {
+                    code = this.currencies_by_id[id]['code'];
+                }
+                let account = this.account ();
+                let usedField = id + '_lock';
+                account['used'] = this.safeFloat (balances, usedField);
+                account['total'] = this.safeFloat (balances, id);
+                account['free'] = account['total'] - account['used'];
+                result[code] = account;
+            }
         }
         return this.parseBalance (result);
     }
@@ -178,6 +185,7 @@ module.exports = class bitz extends Exchange {
     parseTicker (ticker, market = undefined) {
         let timestamp = ticker['date'] * 1000;
         let symbol = market['symbol'];
+        let last = parseFloat (ticker['last']);
         return {
             'symbol': symbol,
             'timestamp': timestamp,
@@ -185,12 +193,14 @@ module.exports = class bitz extends Exchange {
             'high': parseFloat (ticker['high']),
             'low': parseFloat (ticker['low']),
             'bid': parseFloat (ticker['buy']),
+            'bidVolume': undefined,
             'ask': parseFloat (ticker['sell']),
+            'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
-            'close': undefined,
-            'first': undefined,
-            'last': parseFloat (ticker['last']),
+            'close': last,
+            'last': last,
+            'previousClose': undefined,
             'change': undefined,
             'percentage': undefined,
             'average': undefined,
@@ -277,7 +287,7 @@ module.exports = class bitz extends Exchange {
             'coin': market['id'],
             'type': this.timeframes[timeframe],
         }, params));
-        let ohlcv = this.unjson (response['data']['datas']['data']);
+        let ohlcv = JSON.parse (response['data']['datas']['data']);
         return this.parseOHLCVs (ohlcv, market, timeframe, since, limit);
     }
 
@@ -291,10 +301,17 @@ module.exports = class bitz extends Exchange {
             if (typeof side !== 'undefined')
                 side = (side === 'in') ? 'buy' : 'sell';
         }
+        let timestamp = undefined;
+        let iso8601 = undefined;
+        if ('datetime' in order) {
+            timestamp = this.parse8601 (order['datetime']);
+            iso8601 = this.iso8601 (timestamp);
+        }
         return {
             'id': order['id'],
-            'datetime': undefined,
-            'timestamp': undefined,
+            'datetime': iso8601,
+            'timestamp': timestamp,
+            'lastTradeTimestamp': undefined,
             'status': 'open',
             'symbol': symbol,
             'type': 'limit',
@@ -314,6 +331,8 @@ module.exports = class bitz extends Exchange {
         await this.loadMarkets ();
         let market = this.market (symbol);
         let orderType = (side === 'buy') ? 'in' : 'out';
+        if (!this.password)
+            throw new ExchangeError (this.id + ' createOrder() requires you to set exchange.password = "YOUR_TRADING_PASSWORD" (a trade password is NOT THE SAME as your login password)');
         let request = {
             'coin': market['id'],
             'type': orderType,
@@ -347,12 +366,17 @@ module.exports = class bitz extends Exchange {
         let response = await this.privatePostOpenOrders (this.extend ({
             'coin': market['id'],
         }, params));
-        return this.parseOrders (response['data'], market);
+        return this.parseOrders (response['data'], market, since, limit);
     }
 
     nonce () {
-        let milliseconds = this.milliseconds ();
-        return (milliseconds % 1000000);
+        let currentTimestamp = this.seconds ();
+        if (currentTimestamp > this.options['lastNonceTimestamp']) {
+            this.options['lastNonceTimestamp'] = currentTimestamp;
+            this.options['lastNonce'] = 100000;
+        }
+        this.options['lastNonce'] += 1;
+        return this.options['lastNonce'];
     }
 
     sign (path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {

@@ -143,7 +143,9 @@ module.exports = class btctradeua extends Exchange {
             'high': undefined,
             'low': undefined,
             'bid': undefined,
+            'bidVolume': undefined,
             'ask': undefined,
+            'askVolume': undefined,
             'vwap': undefined,
             'open': undefined,
             'close': undefined,
@@ -285,6 +287,7 @@ module.exports = class btctradeua extends Exchange {
             'id': trade['id'],
             'timestamp': timestamp, // until they fix their timestamp
             'datetime': this.iso8601 (timestamp),
+            'lastTradeTimestamp': undefined,
             'status': 'open',
             'symbol': market['symbol'],
             'type': undefined,

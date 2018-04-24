@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 const bittrex = require ('./bittrex.js');
-const { AuthenticationError, InvalidOrder, InsufficientFunds, DDoSProtection } = require ('./base/errors');
+const { ExchangeError, AuthenticationError, InvalidOrder, InsufficientFunds } = require ('./base/errors');
 
 // ---------------------------------------------------------------------------
 
@@ -82,6 +82,11 @@ module.exports = class bleutrade extends bittrex {
                     },
                 },
             },
+            'exceptions': {
+                'Insufficient funds!': InsufficientFunds,
+                'Invalid Order ID': InvalidOrder,
+                'Invalid apikey or apisecret': AuthenticationError,
+            },
         });
     }
 
@@ -142,25 +147,9 @@ module.exports = class bleutrade extends bittrex {
         if (typeof limit !== 'undefined')
             request['depth'] = limit; // 50
         let response = await this.publicGetOrderbook (this.extend (request, params));
-        let orderbook = response['result'];
+        let orderbook = this.safeValue (response, 'result');
+        if (!orderbook)
+            throw new ExchangeError (this.id + ' publicGetOrderbook() returneded no result ' + this.json (response));
         return this.parseOrderBook (orderbook, undefined, 'buy', 'sell', 'Rate', 'Quantity');
-    }
-
-    throwExceptionOnError (response) {
-        if ('message' in response) {
-            if (response['message'] === 'Insufficient funds!')
-                throw new InsufficientFunds (this.id + ' ' + this.json (response));
-            if (response['message'] === 'MIN_TRADE_REQUIREMENT_NOT_MET')
-                throw new InvalidOrder (this.id + ' ' + this.json (response));
-            if (response['message'] === 'APIKEY_INVALID') {
-                if (this.hasAlreadyAuthenticatedSuccessfully) {
-                    throw new DDoSProtection (this.id + ' ' + this.json (response));
-                } else {
-                    throw new AuthenticationError (this.id + ' ' + this.json (response));
-                }
-            }
-            if (response['message'] === 'DUST_TRADE_DISALLOWED_MIN_VALUE_50K_SAT')
-                throw new InvalidOrder (this.id + ' order cost should be over 50k satoshi ' + this.json (response));
-        }
     }
 };
